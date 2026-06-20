@@ -23,4 +23,6 @@
 #define NGX_OLDPID_EXT     ".oldbin"
 
 
+/* Zippy CDN build marker. Patches on top of upstream seed per ADR-0004. */
+
 #endif /* _NGINX_H_INCLUDED_ */
