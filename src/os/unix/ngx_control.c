@@ -147,7 +147,7 @@ ngx_control_preinit(void)
 ngx_int_t
 ngx_control_init(u_char *addr)
 {
-    int        reuseaddr;
+    int        value;
     ngx_fd_t   fd;
     ngx_url_t  u;
 
@@ -200,9 +200,18 @@ ngx_control_init(u_char *addr)
         return NGX_ERROR;
     }
 
-    if (fcntl(fd, F_SETFL, O_ASYNC|O_NONBLOCK) == -1) {
+    if (ngx_nonblocking(fd) == -1) {
         ngx_log_error(NGX_LOG_EMERG, ngx_cycle->log, ngx_socket_errno,
-                      "control: fcntl(O_ASYNC|O_NONBLOCK) failed");
+                      "control: " ngx_nonblocking_n " failed");
+        ngx_close_socket(fd);
+        return NGX_ERROR;
+    }
+
+    value = 1;
+
+    if (ioctl(fd, FIOASYNC, &value) == -1) {
+        ngx_log_error(NGX_LOG_EMERG, ngx_cycle->log, ngx_socket_errno,
+                      "control: ioctl(FIOASYNC) failed");
         ngx_close_socket(fd);
         return NGX_ERROR;
     }
@@ -214,10 +223,10 @@ ngx_control_init(u_char *addr)
         return NGX_ERROR;
     }
 
-    reuseaddr = 1;
+    value = 1;
 
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR,
-                   (const void *) &reuseaddr, sizeof(int))
+                   (const void *) &value, sizeof(int))
         == -1)
     {
         ngx_log_error(NGX_LOG_EMERG, ngx_cycle->log, ngx_socket_errno,
@@ -451,6 +460,7 @@ ngx_control_close(ngx_control_request_t *r)
 static void
 ngx_control_handle_accept(void)
 {
+    int                     value;
     ngx_fd_t                fd;
     ngx_err_t               err;
     struct pollfd          *pfd;
@@ -493,21 +503,30 @@ ngx_control_handle_accept(void)
                        "control accept fd:%d", r->fd);
 
         if (fcntl(r->fd, F_SETFD, FD_CLOEXEC) == -1) {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, ngx_socket_errno,
                           "control: fcntl(FD_CLOEXEC) failed");
             ngx_close_socket(r->fd);
             continue;
         }
 
-        if (fcntl(r->fd, F_SETFL, O_ASYNC|O_NONBLOCK) == -1) {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                          "control: fcntl(O_ASYNC|O_NONBLOCK) failed");
+        if (ngx_nonblocking(r->fd) == -1) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, ngx_socket_errno,
+                          "control: " ngx_nonblocking_n " failed");
+            ngx_close_socket(r->fd);
+            continue;
+        }
+
+        value = 1;
+
+        if (ioctl(r->fd, FIOASYNC, &value) == -1) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, ngx_socket_errno,
+                          "control: ioctl(FIOASYNC) failed");
             ngx_close_socket(r->fd);
             continue;
         }
 
         if (fcntl(r->fd, F_SETOWN, ngx_pid) == -1) {
-            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, ngx_socket_errno,
                           "control: fcntl(F_SETOWN) failed");
             ngx_close_socket(r->fd);
             continue;
@@ -548,12 +567,6 @@ ngx_control_handle_read(ngx_control_request_t *r)
 
     b = r->in;
 
-    if (b->last == b->end) {
-        ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
-                      "control: request too large");
-        return NGX_ERROR;
-    }
-
     n = recv(r->fd, b->last, b->end - b->last, 0);
 
     if (n < 0) {
@@ -575,6 +588,13 @@ ngx_control_handle_read(ngx_control_request_t *r)
     switch (ngx_control_parse_request_line(r)) {
 
     case NGX_AGAIN:
+        if (b->last == b->end) {
+            ngx_log_error(NGX_LOG_ERR, ngx_cycle->log, 0,
+                          "control: request too large");
+            ngx_control_pollfd[r->index].events &= ~POLLIN;
+            return ngx_control_send_response(r, NGX_CTRL_BAD_REQUEST, NULL);
+        }
+
         return NGX_AGAIN;
 
     case NGX_DECLINED:

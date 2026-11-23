@@ -6,9 +6,9 @@ TEMP =		tmp
 
 CC =		cl
 OBJS =		objs.msvc8
-OPENSSL =	openssl-3.5.8
-ZLIB =		zlib-1.3.2
-PCRE =		pcre2-10.48
+OPENSSL =	openssl-3.5.9
+ZLIB =		zlib-1.4
+PCRE =		pcre2-10.49
 
 
 release: export
@@ -90,7 +90,8 @@ zip: export
 	mkdir -p $(TEMP)/$(NGINX)/logs
 	mkdir -p $(TEMP)/$(NGINX)/temp
 
-	sed -i '' -e "s/$$/`printf '\r'`/" $(TEMP)/$(NGINX)/conf/*
+	sed -i.bak -e "s/$$/`printf '\r'`/" $(TEMP)/$(NGINX)/conf/*
+	rm $(TEMP)/$(NGINX)/conf/*.bak
 
 	mv $(TEMP)/$(NGINX)/LICENSE $(TEMP)/$(NGINX)/docs.new
 	mv $(TEMP)/$(NGINX)/*.md $(TEMP)/$(NGINX)/docs.new
